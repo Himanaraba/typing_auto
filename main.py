@@ -1,8 +1,8 @@
 """タイピングゲーム自動化: 範囲選択 → OCR(英数) → そのままキー入力
 
 OCR エンジンは ENGINE で切替:
-  "easyocr"  … 最高精度(ベンチで全48枚完全一致 / CER 0%)。torch(CPU)が必要でやや重い・~130ms
-  "rapidocr" … 軽量・高速(45/48 / ~15-50ms、torch不要)。スペース結合が稀に出る
+  "rapidocr" … 既定。rec-only + 保守的スペース復元でベンチ48/48・CER 0% を ~15ms で達成。torch不要・軽量
+  "easyocr"  … 代替。単語検出で高精度だが ~90-110ms と重い(torch CPU)
 """
 
 import ctypes
@@ -29,8 +29,12 @@ HOTKEY_STOP = "f10"
 HOTKEY_RESELECT = "f8"
 HOTKEY_QUIT = "ctrl+shift+q"
 
-# OCR エンジン: "easyocr"(最高精度) / "rapidocr"(軽量高速)
-ENGINE = "easyocr"
+# OCR エンジン: "rapidocr"(軽量高速・既定) / "easyocr"(代替・重い)
+ENGINE = "rapidocr"
+
+# 語結合(quartzjudge 等)を保守的に復元する。既知単語でない長いトークンを、
+# 両方とも既知単語かつ各3文字以上に分割できる時だけ分割(vexingly 等の過分割は回避)
+FIX_SPACES = True
 
 CAPTURE_INTERVAL = 0.05
 TYPE_INTERVAL = 0.005
@@ -95,8 +99,38 @@ else:
     raise ValueError(f"未知の ENGINE: {ENGINE!r} ('easyocr' か 'rapidocr')")
 
 
+# === 保守的スペース復元 ===
+if FIX_SPACES:
+    import wordninja
+
+    try:
+        _WORDCOST = wordninja.DEFAULT_LANGUAGE_MODEL._wordcost  # {word: cost} 頻度辞書
+    except Exception:
+        _WORDCOST = None
+
+    def fix_spaces(text):
+        if not _WORDCOST:
+            return text
+        out = []
+        for tok in text.split():
+            # 既知単語でない長い英字トークンのみ対象。両方とも既知単語かつ各3文字以上に
+            # 分割できる場合だけ分割する(短い断片を生む分割や既知単語の過分割を避ける)
+            if tok.isalpha() and len(tok) >= 6 and tok not in _WORDCOST:
+                parts = wordninja.split(tok)
+                if len(parts) >= 2 and all(len(p) >= 3 for p in parts) \
+                        and all(p in _WORDCOST for p in parts):
+                    out.extend(parts)
+                    continue
+            out.append(tok)
+        return " ".join(out)
+else:
+    def fix_spaces(text):
+        return text
+
+
 def ocr_image(img_bgr):
-    return KEEP.sub("", _recognize(img_bgr)).lower()
+    text = KEEP.sub("", _recognize(img_bgr)).lower()
+    return fix_spaces(text)
 
 
 def select_region():

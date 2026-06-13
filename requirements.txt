@@ -1,7 +1,8 @@
-easyocr
+rapidocr-onnxruntime
+wordninja
 mss
 numpy
 keyboard
 
-# 任意: 軽量・高速モード(ENGINE="rapidocr")用。torch 不要だが精度は少し劣る
-# rapidocr-onnxruntime
+# 任意: 代替エンジン(ENGINE="easyocr")。高精度だが torch(CPU) を含み重く、速度も遅い
+# easyocr
