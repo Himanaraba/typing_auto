@@ -1,0 +1,5 @@
+winocr
+Pillow
+mss
+numpy
+keyboard
