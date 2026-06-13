@@ -201,17 +201,9 @@ def type_cancellable(text, state):
 def typing_loop(state):
     sct = mss.mss()
     last_text = ""
-    last_frame = None
     while state["running"]:
         try:
             img = np.array(sct.grab(state["region"]))[:, :, :3]
-            # フレーム差分ゲーティング: 画素が前回と同一なら OCR をスキップ。
-            # 待機中はほぼ 0 コスト、テキストが変わった瞬間だけ OCR が走る。
-            if last_frame is not None and img.shape == last_frame.shape \
-                    and np.array_equal(img, last_frame):
-                time.sleep(CAPTURE_INTERVAL)
-                continue
-            last_frame = img
             text = ocr_image(img)
             if DEBUG:
                 if not text:
