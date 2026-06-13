@@ -33,6 +33,11 @@ N_WORDS = 10  # 毎回ランダムに N 語出題
 PER_WORD_TIMEOUT = 6.0
 FONT = ("Consolas", 48)
 
+# ゲームのキー取りこぼしを模擬: この間隔より速く来たキーは捨てる(0で無効)。
+# 実ゲーム(WebGL/30〜60fps)が速すぎる打鍵を落とす挙動を再現し、TYPE_INTERVAL が
+# 十分かを検証する。本体 TYPE_INTERVAL がこれより小さいと取りこぼしで NG になる。
+CONSUME_INTERVAL = 0.02
+
 WORDS = random.sample(WORD_POOL, min(N_WORDS, len(WORD_POOL)))
 
 # テスト中は本体のデバッグ表示は止め、差分スキップは有効(実運用に合わせる)
@@ -51,6 +56,21 @@ entry = tk.Entry(root, font=("Consolas", 20), width=40)  # 注入キーの受け
 entry.pack(pady=10)
 info = tk.Label(root, text="準備中...", font=("Meiryo UI", 12), bg="white", fg="gray")
 info.pack()
+
+# キー取りこぼし模擬: CONSUME_INTERVAL より速く来たキーは捨てる(default挿入を抑止)
+_last_accept = {"t": 0.0}
+
+
+def on_keypress(e):
+    if e.char and e.char.isprintable():
+        now = time.time()
+        if CONSUME_INTERVAL > 0 and (now - _last_accept["t"]) < CONSUME_INTERVAL:
+            return "break"  # 速すぎ → 取りこぼし
+        _last_accept["t"] = now
+    return None
+
+
+entry.bind("<KeyPress>", on_keypress)
 
 tstate = {"running": False, "region": None}
 idx = {"v": 0}
@@ -72,20 +92,43 @@ def focus_entry():
     entry.focus_force()
 
 
-def show(word):
+def show(word, refocus=False):
     label.config(text=word)
     entry.delete(0, tk.END)
-    focus_entry()
+    if refocus:
+        focus_entry()
     root.update_idletasks()
     tstate["region"] = label_region()
 
 
+WARMUP_WORD = "ready"
+SETTLE_SEC = 4.0  # 起動直後はフォーカスが定まりにくいので数秒確保してから採点開始
+_last_focus = {"t": 0.0}
+
+
 def begin():
-    show(WORDS[0])
+    # 採点前のフォーカス確立フェーズ。確立後はフォーカスを触らない(揺さぶると取りこぼすため)
+    show(WARMUP_WORD, refocus=True)
+    _last_focus["t"] = time.time()
     word_start["t"] = time.time()
     tstate["running"] = True
     threading.Thread(target=main.typing_loop, args=(tstate,), daemon=True).start()
+    info.config(text="フォーカス確立中...")
+    root.after(100, settle)
+
+
+def settle():
+    now = time.time()
+    # 数回だけ穏やかにフォーカスを確保(連打しない)
+    if now - _last_focus["t"] > 1.2:
+        focus_entry()
+        _last_focus["t"] = now
+    if now - word_start["t"] < SETTLE_SEC:
+        root.after(100, settle)
+        return
     info.config(text="テスト実行中... 自動で進みます")
+    show(WORDS[0])  # 以降フォーカスは触らない
+    word_start["t"] = time.time()
     root.after(50, poll)
 
 

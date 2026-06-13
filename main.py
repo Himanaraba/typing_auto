@@ -38,7 +38,10 @@ ENGINE = "rapidocr"
 FIX_SPACES = False
 
 CAPTURE_INTERVAL = 0.05
-TYPE_INTERVAL = 0.005
+# 1文字ごとの間隔(秒)。速すぎるとゲームが1フレームに複数キーを取りこぼし、打鍵列が
+# ズレて途中で停止する。30fps(33ms)/60fps(16ms)のゲームでも確実に拾わせるため余裕を持って
+# 既定 40ms(=25字/秒, 人間より十分速い)。取りこぼさず速くしたいなら少しずつ下げる。
+TYPE_INTERVAL = 0.04
 
 # 暴走防止: OCR が異常に長い文字列を返したら打鍵せず捨てる
 MAX_TYPE_LEN = 500
