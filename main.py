@@ -46,6 +46,11 @@ MAX_TYPE_LEN = 500
 # True にすると、OCR が毎フレーム何を読んだか／打鍵したかをコンソールに表示(原因切り分け用)
 DEBUG = True
 
+# スクショの画素が前回と同じ間は OCR をスキップ(=画面が変化した時だけ読む)。
+# 範囲をローマ字ガイド1行だけにタイトに絞ると強力に効く。範囲内にタイマー/アニメ等
+# 常時動く要素が入ると毎回「変化あり」扱いになり効果が薄れる。False で毎回OCR。
+SKIP_UNCHANGED = True
+
 # --- rapidocr 専用設定 ---
 # 範囲を1行とみなしテキスト検出(det)を省略する高速モード(~15ms)。複数行は False。
 SINGLE_LINE = True
@@ -201,9 +206,16 @@ def type_cancellable(text, state):
 def typing_loop(state):
     sct = mss.mss()
     last_text = ""
+    last_frame = None
     while state["running"]:
         try:
             img = np.array(sct.grab(state["region"]))[:, :, :3]
+            # スクショ差分: 画素が前回と同一なら OCR をスキップ(画面が変わった時だけ読む)
+            if SKIP_UNCHANGED and last_frame is not None \
+                    and img.shape == last_frame.shape and np.array_equal(img, last_frame):
+                time.sleep(CAPTURE_INTERVAL)
+                continue
+            last_frame = img
             text = ocr_image(img)
             if DEBUG:
                 if not text:

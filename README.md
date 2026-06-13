@@ -65,6 +65,8 @@ python -m venv .venv
 | `CAPTURE_INTERVAL` | キャプチャ間隔（秒） |
 | `TYPE_INTERVAL` | キー入力間隔（秒） |
 | `MAX_TYPE_LEN` | この長さを超える OCR 結果は誤認識とみなし打鍵しない |
+| `SKIP_UNCHANGED` | 画素が前回と同一なら OCR をスキップ（既定 `True`）。範囲を1行にタイトに絞ると効果大 |
+| `DEBUG` | 毎フレームの OCR 結果と打鍵有無をコンソール表示（原因切り分け用） |
 | `FIX_SPACES` | 【英文向け】語結合を英単語辞書で保守的に復元。日本語ローマ字には効かないため既定 `False`。英文タイピング時のみ `True` |
 | `OCR_THREADS` | (rapidocr) 推論スレッド数。多コアでも 2〜6 が最速・最安定（過剰生成は逆効果） |
 | `EASYOCR_THREADS` | (easyocr) torch スレッド数。実測では 8 が最速 |
@@ -77,9 +79,10 @@ python -m venv .venv
 ## 仕組み
 
 1. `mss` で選択範囲を `CAPTURE_INTERVAL` ごとにキャプチャ
-2. OCR（既定 RapidOCR rec-only）でテキスト認識 → 不要記号を除去し小文字化
-3. `FIX_SPACES` で語結合を保守的に復元（英文向け、既定オフ）
-4. 前回と異なる場合のみ、1文字ずつ（停止を即反映できるよう）キー入力
+2. （`SKIP_UNCHANGED=True` 時）画素が前回と同一なら OCR をスキップ＝画面が変化した時だけ読む
+3. OCR（既定 RapidOCR rec-only）でテキスト認識 → 不要記号を除去し小文字化
+4. `FIX_SPACES` で語結合を保守的に復元（英文向け、既定オフ）
+5. 読んだテキストが前回と異なる場合のみ、1文字ずつ（停止を即反映できるよう）キー入力
 
 ## 使用ライブラリ
 
