@@ -32,9 +32,10 @@ HOTKEY_QUIT = "ctrl+shift+q"
 # OCR エンジン: "rapidocr"(軽量高速・既定) / "easyocr"(代替・重い)
 ENGINE = "rapidocr"
 
-# 語結合(quartzjudge 等)を保守的に復元する。既知単語でない長いトークンを、
-# 両方とも既知単語かつ各3文字以上に分割できる時だけ分割(vexingly 等の過分割は回避)
-FIX_SPACES = True
+# 語結合(quartzjudge 等)を英単語辞書で保守的に復元する。【英文向け機能】
+# 日本語ローマ字(寿司打/e-typing 等)は英単語でないため効かず、稀に誤分割するので既定オフ。
+# 英文タイピングを自動化する時だけ True にする。
+FIX_SPACES = False
 
 CAPTURE_INTERVAL = 0.05
 TYPE_INTERVAL = 0.005

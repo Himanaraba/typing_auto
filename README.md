@@ -4,6 +4,8 @@
 
 > ⚠️ 学習・実験目的のツールです。オンライン対戦やランキングのある環境での使用は規約違反になり得ます。利用は自己責任で。
 
+> 📝 対象が canvas / WebGL / Unity / Flash 描画のゲーム（寿司打 WebGL版・e-typing 等の多く）の場合、文字は画像として描かれDOM/JSに存在しないため、OCR が唯一の汎用的な読み取り手段です。DOM にテキストを持つ一部の Web ゲームやネイティブアプリは、別途ソース直読み（DOM/UI Automation）の方が高速・正確です。日本語ローマ字を打つ場合は英文向けの `FIX_SPACES` はオフのままにしてください。
+
 ## 動作環境
 
 - Windows 10 / 11（`keyboard` のグローバルフックを使うため Windows 想定）
@@ -63,7 +65,7 @@ python -m venv .venv
 | `CAPTURE_INTERVAL` | キャプチャ間隔（秒） |
 | `TYPE_INTERVAL` | キー入力間隔（秒） |
 | `MAX_TYPE_LEN` | この長さを超える OCR 結果は誤認識とみなし打鍵しない |
-| `FIX_SPACES` | 語結合を保守的に復元（既定 `True`）。固有名詞等で誤分割が気になる場合は `False` |
+| `FIX_SPACES` | 【英文向け】語結合を英単語辞書で保守的に復元。日本語ローマ字には効かないため既定 `False`。英文タイピング時のみ `True` |
 | `OCR_THREADS` | (rapidocr) 推論スレッド数。多コアでも 2〜6 が最速・最安定（過剰生成は逆効果） |
 | `EASYOCR_THREADS` | (easyocr) torch スレッド数。実測では 8 が最速 |
 | `SINGLE_LINE` | (rapidocr) `True` で検出(det)を省く高速モード。複数行は `False` |
