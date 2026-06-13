@@ -1,4 +1,9 @@
-"""タイピングゲーム自動化: 範囲選択 → RapidOCR(英数) → そのままキー入力"""
+"""タイピングゲーム自動化: 範囲選択 → OCR(英数) → そのままキー入力
+
+OCR エンジンは ENGINE で切替:
+  "easyocr"  … 最高精度(ベンチで全48枚完全一致 / CER 0%)。torch(CPU)が必要でやや重い・~130ms
+  "rapidocr" … 軽量・高速(45/48 / ~15-50ms、torch不要)。スペース結合が稀に出る
+"""
 
 import ctypes
 import re
@@ -10,7 +15,6 @@ import tkinter as tk
 import keyboard
 import mss
 import numpy as np
-from rapidocr_onnxruntime import RapidOCR
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -25,18 +29,74 @@ HOTKEY_STOP = "f10"
 HOTKEY_RESELECT = "f8"
 HOTKEY_QUIT = "ctrl+shift+q"
 
+# OCR エンジン: "easyocr"(最高精度) / "rapidocr"(軽量高速)
+ENGINE = "easyocr"
+
 CAPTURE_INTERVAL = 0.05
 TYPE_INTERVAL = 0.005
 
-# 範囲を1行とみなしテキスト検出(det)を省略する高速モード（~30ms）。
-# 複数行をまとめて読みたい場合は False（精度は上がるが数秒かかる）
+# 暴走防止: OCR が異常に長い文字列を返したら打鍵せず捨てる
+MAX_TYPE_LEN = 500
+
+# --- rapidocr 専用設定 ---
+# 範囲を1行とみなしテキスト検出(det)を省略する高速モード(~15ms)。複数行は False。
 SINGLE_LINE = True
+# onnxruntime のスレッド数(rapidocr)。RapidOCR は既定で全コアを使うが小モデルでは
+# 同期オーバーヘッドで逆に遅くなる(16T: 152ms / 4T: 15ms)。2〜6 が最速・最安定。
+OCR_THREADS = 4
+# EasyOCR(torch CPU)用スレッド数。モデルが大きく、実測では 8 が最速(8T: 198ms / 4T: 378ms / 16T: 228ms)
+EASYOCR_THREADS = 8
+# rec-only パスは RapidOCR 内部のスコア閾値が効かないため自前で適用(低信頼の誤打鍵防止)
+MIN_SCORE = 0.5
 
 # OCR結果から残す文字。記号を増やしたければここを広げる
 KEEP = re.compile(r"[^a-zA-Z0-9 \-_.,'!?:;/()\"]")
 
-# RapidOCR エンジン（初回呼び出し時にモデルをロード）
-_ocr_engine = RapidOCR()
+
+# === OCR エンジン初期化(選択したものだけ遅延 import) ===
+if ENGINE == "easyocr":
+    import easyocr
+
+    try:
+        import torch
+        torch.set_num_threads(EASYOCR_THREADS)
+    except Exception:
+        pass
+
+    _reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+
+    def _recognize(img_bgr):
+        # readtext は ndarray を BGR とみなす。paragraph=True で単語スペースを正しく結合
+        lines = _reader.readtext(img_bgr, detail=0, paragraph=True)
+        return " ".join(lines)
+
+elif ENGINE == "rapidocr":
+    from rapidocr_onnxruntime import RapidOCR
+
+    _ocr_engine = RapidOCR(
+        intra_op_num_threads=OCR_THREADS,
+        inter_op_num_threads=OCR_THREADS,
+    )
+
+    def _recognize(img_bgr):
+        if SINGLE_LINE:
+            # det/cls を省略し範囲全体を1行として認識。戻り値は [text, score] のリスト
+            result, _ = _ocr_engine(img_bgr, use_det=False, use_cls=False, use_rec=True)
+            if not result:
+                return ""
+            return " ".join(line[0] for line in result if float(line[1]) >= MIN_SCORE)
+        # det 込み。戻り値は [box, text, score] を上→下/左→右順で連結
+        result, _ = _ocr_engine(img_bgr)
+        if not result:
+            return ""
+        return " ".join(line[1] for line in result)
+
+else:
+    raise ValueError(f"未知の ENGINE: {ENGINE!r} ('easyocr' か 'rapidocr')")
+
+
+def ocr_image(img_bgr):
+    return KEEP.sub("", _recognize(img_bgr)).lower()
 
 
 def select_region():
@@ -88,31 +148,34 @@ def select_region():
     return state["result"]
 
 
-def ocr_image(img_bgr):
-    if SINGLE_LINE:
-        # det/cls を省略し範囲全体を1行として認識。戻り値は [text, score] のリスト
-        result, _ = _ocr_engine(img_bgr, use_det=False, use_cls=False, use_rec=True)
-        if not result:
-            return ""
-        text = " ".join(line[0] for line in result)
-    else:
-        # det 込み。戻り値は [box, text, score] を上→下/左→右順で連結
-        result, _ = _ocr_engine(img_bgr)
-        if not result:
-            return ""
-        text = " ".join(line[1] for line in result)
-    return KEEP.sub("", text).lower()
+def type_cancellable(text, state):
+    """1文字ずつ送出。各文字前に running を確認し、stop/再選択を即座に反映できるようにする。"""
+    if len(text) > MAX_TYPE_LEN:
+        return
+    for ch in text:
+        if not state["running"]:
+            return
+        keyboard.write(ch)
+        time.sleep(TYPE_INTERVAL)
 
 
 def typing_loop(state):
     sct = mss.mss()
     last_text = ""
+    last_frame = None
     while state["running"]:
         try:
             img = np.array(sct.grab(state["region"]))[:, :, :3]
+            # フレーム差分ゲーティング: 画素が前回と同一なら OCR をスキップ。
+            # 待機中はほぼ 0 コスト、テキストが変わった瞬間だけ OCR が走る。
+            if last_frame is not None and img.shape == last_frame.shape \
+                    and np.array_equal(img, last_frame):
+                time.sleep(CAPTURE_INTERVAL)
+                continue
+            last_frame = img
             text = ocr_image(img)
             if text and text != last_text:
-                keyboard.write(text, delay=TYPE_INTERVAL)
+                type_cancellable(text, state)
                 last_text = text
         except Exception as ex:
             print(f"[ERR] {ex}", file=sys.stderr)
@@ -121,7 +184,7 @@ def typing_loop(state):
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    print("=== タイピングゲーム自動化 (RapidOCR / 英数) ===")
+    print(f"=== タイピングゲーム自動化 (OCR={ENGINE} / 英数) ===")
     print(
         f"開始: {HOTKEY_START.upper()} / "
         f"停止: {HOTKEY_STOP.upper()} / "
@@ -136,23 +199,29 @@ def main():
         return
     print(f"選択範囲: {region}")
 
-    state = {"running": False, "quit": False, "region": region}
+    state = {"running": False, "quit": False, "region": region, "thread": None}
 
     def start():
-        if state["running"] or state["region"] is None:
+        # 旧スレッドがまだ生きているなら二重起動しない(stop→start 連打対策)
+        t = state["thread"]
+        if state["running"] or state["region"] is None or (t and t.is_alive()):
             return
         state["running"] = True
-        threading.Thread(target=typing_loop, args=(state,), daemon=True).start()
+        state["thread"] = threading.Thread(target=typing_loop, args=(state,), daemon=True)
+        state["thread"].start()
         print("[開始]")
 
     def stop():
         if state["running"]:
             state["running"] = False
             print("[停止]")
+        t = state["thread"]
+        # 停止要求後、実際にループが抜けるまで待つ(自スレッドからの join は避ける)
+        if t and t.is_alive() and t is not threading.current_thread():
+            t.join(timeout=1.0)
 
     def reselect():
         stop()
-        time.sleep(0.1)
         new_region = select_region()
         if new_region:
             state["region"] = new_region

@@ -1,4 +1,7 @@
-rapidocr-onnxruntime
+easyocr
 mss
 numpy
 keyboard
+
+# 任意: 軽量・高速モード(ENGINE="rapidocr")用。torch 不要だが精度は少し劣る
+# rapidocr-onnxruntime
