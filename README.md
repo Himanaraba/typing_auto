@@ -1,13 +1,15 @@
 # typing_auto
 
-タイピングゲーム自動化ツール。画面上で選択した範囲を Windows 標準 OCR で読み取り、認識した英数文字列をそのままキー入力します。
+タイピングゲーム自動化ツール。画面上で選択した範囲を RapidOCR（ONNX Runtime）で読み取り、認識した英数文字列をそのままキー入力します。
 
 > ⚠️ 学習・実験目的のツールです。オンライン対戦やランキングのある環境での使用は規約違反になり得ます。利用は自己責任で。
 
 ## 動作環境
 
-- Windows 10 / 11（Windows OCR を利用するため Windows 専用）
+- Windows 10 / 11（`keyboard` のグローバルフックを使うため Windows 想定。OCR 自体はクロスプラットフォーム）
 - Python 3.9+
+
+初回起動時に RapidOCR のモデル（数十 MB）が読み込まれます。
 
 ## セットアップ
 
@@ -43,19 +45,21 @@ python -m venv .venv
 | --- | --- |
 | `CAPTURE_INTERVAL` | キャプチャ間隔（秒） |
 | `TYPE_INTERVAL` | キー入力間隔（秒） |
-| `OCR_LANG` | OCR 言語（既定 `en-US`） |
+| `SINGLE_LINE` | `True` で検出(det)を省く高速モード(~30ms、範囲を1行とみなす)。複数行は `False`（精度↑だが数秒） |
 | `KEEP` | 入力に残す文字の正規表現 |
+
+> 💡 タイピングゲームは1行ずつ表示されることが多いので、`SINGLE_LINE=True`（既定）のまま**問題文1行だけ**を範囲選択するのが最速・最精度です。
 
 ## 仕組み
 
 1. `mss` で選択範囲をキャプチャ
-2. `winocr`（Windows 標準 OCR）でテキスト認識
+2. `RapidOCR`（ONNX Runtime / CPU）でテキスト認識
 3. 不要な記号を除去し小文字化
 4. 前回と異なる場合のみ `keyboard.write` でキー入力
 
 ## 使用ライブラリ
 
-`winocr` / `Pillow` / `mss` / `numpy` / `keyboard`
+`rapidocr-onnxruntime` / `mss` / `numpy` / `keyboard`
 
 ## License
 

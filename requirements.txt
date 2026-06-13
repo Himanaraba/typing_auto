@@ -1,5 +1,4 @@
-winocr
-Pillow
+rapidocr-onnxruntime
 mss
 numpy
 keyboard

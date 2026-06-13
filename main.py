@@ -1,4 +1,4 @@
-"""タイピングゲーム自動化: 範囲選択 → Windows標準OCR(英数) → そのままキー入力"""
+"""タイピングゲーム自動化: 範囲選択 → RapidOCR(英数) → そのままキー入力"""
 
 import ctypes
 import re
@@ -10,8 +10,7 @@ import tkinter as tk
 import keyboard
 import mss
 import numpy as np
-import winocr
-from PIL import Image
+from rapidocr_onnxruntime import RapidOCR
 
 try:
     ctypes.windll.shcore.SetProcessDpiAwareness(2)
@@ -28,10 +27,16 @@ HOTKEY_QUIT = "ctrl+shift+q"
 
 CAPTURE_INTERVAL = 0.05
 TYPE_INTERVAL = 0.005
-OCR_LANG = "en-US"
+
+# 範囲を1行とみなしテキスト検出(det)を省略する高速モード（~30ms）。
+# 複数行をまとめて読みたい場合は False（精度は上がるが数秒かかる）
+SINGLE_LINE = True
 
 # OCR結果から残す文字。記号を増やしたければここを広げる
 KEEP = re.compile(r"[^a-zA-Z0-9 \-_.,'!?:;/()\"]")
+
+# RapidOCR エンジン（初回呼び出し時にモデルをロード）
+_ocr_engine = RapidOCR()
 
 
 def select_region():
@@ -84,10 +89,18 @@ def select_region():
 
 
 def ocr_image(img_bgr):
-    rgb = img_bgr[:, :, ::-1]
-    pil = Image.fromarray(rgb)
-    result = winocr.recognize_pil_sync(pil, OCR_LANG)
-    text = result.get("text", "") if isinstance(result, dict) else ""
+    if SINGLE_LINE:
+        # det/cls を省略し範囲全体を1行として認識。戻り値は [text, score] のリスト
+        result, _ = _ocr_engine(img_bgr, use_det=False, use_cls=False, use_rec=True)
+        if not result:
+            return ""
+        text = " ".join(line[0] for line in result)
+    else:
+        # det 込み。戻り値は [box, text, score] を上→下/左→右順で連結
+        result, _ = _ocr_engine(img_bgr)
+        if not result:
+            return ""
+        text = " ".join(line[1] for line in result)
     return KEEP.sub("", text).lower()
 
 
@@ -108,7 +121,7 @@ def typing_loop(state):
 
 def main():
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
-    print("=== タイピングゲーム自動化 (Windows OCR / 英数) ===")
+    print("=== タイピングゲーム自動化 (RapidOCR / 英数) ===")
     print(
         f"開始: {HOTKEY_START.upper()} / "
         f"停止: {HOTKEY_STOP.upper()} / "
