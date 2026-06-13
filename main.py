@@ -43,6 +43,9 @@ TYPE_INTERVAL = 0.005
 # 暴走防止: OCR が異常に長い文字列を返したら打鍵せず捨てる
 MAX_TYPE_LEN = 500
 
+# True にすると、OCR が毎フレーム何を読んだか／打鍵したかをコンソールに表示(原因切り分け用)
+DEBUG = True
+
 # --- rapidocr 専用設定 ---
 # 範囲を1行とみなしテキスト検出(det)を省略する高速モード(~15ms)。複数行は False。
 SINGLE_LINE = True
@@ -131,6 +134,7 @@ else:
 
 def ocr_image(img_bgr):
     text = KEEP.sub("", _recognize(img_bgr)).lower()
+    text = re.sub(r"\s+", " ", text).strip()  # 先頭/末尾・連続スペースを正規化
     return fix_spaces(text)
 
 
@@ -209,11 +213,18 @@ def typing_loop(state):
                 continue
             last_frame = img
             text = ocr_image(img)
+            if DEBUG:
+                if not text:
+                    print("[OCR] (空: 文字を読めず)")
+                elif text == last_text:
+                    print(f"[OCR] 変化なし: {text!r}")
+                else:
+                    print(f"[OCR] 打鍵: {text!r}")
             if text and text != last_text:
                 type_cancellable(text, state)
                 last_text = text
         except Exception as ex:
-            print(f"[ERR] {ex}", file=sys.stderr)
+            print(f"[ERR] {ex}")
         time.sleep(CAPTURE_INTERVAL)
 
 
